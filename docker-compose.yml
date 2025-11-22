@@ -1,23 +1,22 @@
 services:
-  monitor:
-    build: .
-    image: shopify-monitor:latest
+  shopify-monitor:
+    image: ghcr.io/theandersmadsen/shopify-monitor:latest
     container_name: shopify-monitor
     restart: unless-stopped
-    environment:
-      - PORT=3000
-      - WEBHOOK_URL=${WEBHOOK_URL:-}
     ports:
       - "3000:3000"
+    environment:
+      - PORT=3000
     volumes:
       - ./data:/app/data
-    read_only: false
-    cap_drop:
-      - ALL
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
     deploy:
       resources:
         limits:
           cpus: '0.5'
           memory: 256M
+        reservations:
+          memory: 128M

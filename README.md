@@ -60,7 +60,6 @@ docker run -d \
   --name shopify-monitor \
   -p 3000:3000 \
   -v $(pwd)/data:/app/data \
-  -e WEBHOOK_URL=${WEBHOOK_URL:-} \
   --restart unless-stopped \
   ghcr.io/theandersmadsen/shopify-monitor:latest
 ```
@@ -82,7 +81,8 @@ Configuration is automatically saved to `./data/config.json` and the monitor wil
 ## Environment Variables
 
 - `PORT`: Server port (default: 3000)
-- `WEBHOOK_URL`: Default Discord webhook URL (can be overridden in dashboard)
+
+**Note**: All monitor configuration (sites, webhook URL, delay) is managed through the web dashboard and persisted in `./data/config.json`. No environment variables are needed for monitor settings.
 
 ## What It Monitors
 

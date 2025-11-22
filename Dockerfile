@@ -10,7 +10,6 @@ RUN bun install --frozen-lockfile --production
 FROM base AS runner
 
 ENV NODE_ENV=production
-ENV WEBHOOK_URL=""
 
 RUN mkdir -p data && chown -R bun:bun /app
 
