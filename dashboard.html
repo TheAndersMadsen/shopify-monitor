@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shopify Monitor Dashboard</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+      color: #333;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .header {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .header h1 {
+      color: #667eea;
+      margin-bottom: 8px;
+    }
+
+    .header p {
+      color: #666;
+    }
+
+    .status {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-top: 8px;
+    }
+
+    .status.connected {
+      background: #10b981;
+      color: white;
+    }
+
+    .status.disconnected {
+      background: #ef4444;
+      color: white;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+
+    @media (max-width: 768px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .card h2 {
+      color: #667eea;
+      margin-bottom: 20px;
+      font-size: 20px;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 600;
+      color: #374151;
+    }
+
+    .form-group input,
+    .form-group textarea {
+      width: 100%;
+      padding: 12px;
+      border: 2px solid #e5e7eb;
+      border-radius: 8px;
+      font-size: 14px;
+      transition: border-color 0.2s;
+    }
+
+    .form-group input:focus,
+    .form-group textarea:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+
+    .form-group textarea {
+      resize: vertical;
+      min-height: 80px;
+      font-family: monospace;
+    }
+
+    .site-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .site-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px;
+      background: #f9fafb;
+      border-radius: 6px;
+    }
+
+    .site-item input {
+      flex: 1;
+      margin: 0;
+    }
+
+    .btn {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: #667eea;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #5568d3;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+    }
+
+    .btn-secondary {
+      background: #6b7280;
+      color: white;
+    }
+
+    .btn-secondary:hover {
+      background: #4b5563;
+    }
+
+    .btn-danger {
+      background: #ef4444;
+      color: white;
+    }
+
+    .btn-danger:hover {
+      background: #dc2626;
+    }
+
+    .btn-small {
+      padding: 6px 12px;
+      font-size: 12px;
+    }
+
+    .logs-container {
+      height: 500px;
+      overflow-y: auto;
+      background: #1e1e1e;
+      border-radius: 8px;
+      padding: 16px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+    }
+
+    .log-entry {
+      margin-bottom: 8px;
+      padding: 8px;
+      border-radius: 4px;
+      border-left: 3px solid transparent;
+    }
+
+    .log-entry.info {
+      color: #9ca3af;
+      border-left-color: #3b82f6;
+    }
+
+    .log-entry.success {
+      color: #10b981;
+      border-left-color: #10b981;
+    }
+
+    .log-entry.error {
+      color: #ef4444;
+      border-left-color: #ef4444;
+    }
+
+    .log-entry.warning {
+      color: #f59e0b;
+      border-left-color: #f59e0b;
+    }
+
+    .log-timestamp {
+      color: #6b7280;
+      margin-right: 8px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    .full-width {
+      grid-column: 1 / -1;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px;
+      color: #9ca3af;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🛍️ Shopify Monitor Dashboard</h1>
+      <p>Monitor Shopify stores for new products and updates</p>
+      <span class="status disconnected" id="status">Disconnected</span>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Configuration</h2>
+        
+        <div class="form-group">
+          <label>Sites to Monitor (one per line)</label>
+          <div class="site-list" id="sitesList">
+          </div>
+          <button class="btn btn-secondary btn-small" onclick="addSite()" style="margin-top: 8px;">+ Add Site</button>
+        </div>
+
+        <div class="form-group">
+          <label>Discord Webhook URL</label>
+          <input type="text" id="webhookUrl" placeholder="https://discord.com/api/webhooks/...">
+        </div>
+
+        <div class="form-group">
+          <label>Check Interval (milliseconds)</label>
+          <input type="number" id="delayMs" min="10000" value="60000">
+        </div>
+
+        <div class="actions">
+          <button class="btn btn-primary" onclick="saveConfig()">Save Configuration</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Real-time Logs</h2>
+        <div class="logs-container" id="logsContainer">
+          <div class="empty-state">Waiting for logs...</div>
+        </div>
+        <div class="actions" style="margin-top: 12px;">
+          <button class="btn btn-secondary btn-small" onclick="clearLogs()">Clear Logs</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let ws = null;
+    let config = null;
+
+    // Initialize
+    async function init() {
+      await loadConfig();
+      connectWebSocket();
+    }
+
+    // Load configuration
+    async function loadConfig() {
+      try {
+        const response = await fetch('/api/config');
+        config = await response.json();
+        
+        // Populate sites
+        const sitesList = document.getElementById('sitesList');
+        sitesList.innerHTML = '';
+        config.sites.forEach((site, index) => {
+          addSiteInput(site, index);
+        });
+        if (config.sites.length === 0) {
+          addSiteInput('', 0);
+        }
+
+        // Populate other fields
+        document.getElementById('webhookUrl').value = config.webhookUrl || '';
+        document.getElementById('delayMs').value = config.delayMs || 60000;
+      } catch (error) {
+        addLog('Failed to load configuration: ' + error, 'error');
+      }
+    }
+
+    // Add site input
+    function addSite() {
+      const sitesList = document.getElementById('sitesList');
+      const index = sitesList.children.length;
+      addSiteInput('', index);
+    }
+
+    function addSiteInput(value, index) {
+      const sitesList = document.getElementById('sitesList');
+      const div = document.createElement('div');
+      div.className = 'site-item';
+      div.innerHTML = `
+        <input type="text" value="${value}" placeholder="https://example.com" data-index="${index}">
+        <button class="btn btn-danger btn-small" onclick="removeSite(this)">Remove</button>
+      `;
+      sitesList.appendChild(div);
+    }
+
+    function removeSite(btn) {
+      btn.parentElement.remove();
+    }
+
+    // Save configuration
+    async function saveConfig() {
+      const sitesList = document.getElementById('sitesList');
+      const sites = Array.from(sitesList.querySelectorAll('input'))
+        .map(input => input.value.trim())
+        .filter(site => site !== '');
+
+      const webhookUrl = document.getElementById('webhookUrl').value.trim();
+      const delayMs = parseInt(document.getElementById('delayMs').value);
+
+      if (sites.length === 0) {
+        alert('Please add at least one site to monitor');
+        return;
+      }
+
+      if (delayMs < 10000) {
+        alert('Delay must be at least 10000ms (10 seconds)');
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/config', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            sites,
+            webhookUrl,
+            delayMs
+          })
+        });
+
+        const result = await response.json();
+        if (result.success) {
+          config = result.config;
+          addLog('Configuration saved successfully', 'success');
+        } else {
+          addLog('Failed to save configuration: ' + result.error, 'error');
+        }
+      } catch (error) {
+        addLog('Failed to save configuration: ' + error, 'error');
+      }
+    }
+
+    // WebSocket connection
+    function connectWebSocket() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws`;
+      
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        document.getElementById('status').textContent = 'Connected';
+        document.getElementById('status').className = 'status connected';
+        addLog('Connected to server', 'success');
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const logEntry = JSON.parse(event.data);
+          addLog(logEntry.message, logEntry.type, logEntry.timestamp);
+        } catch (e) {
+          console.error('Failed to parse log entry:', e);
+        }
+      };
+
+      ws.onclose = () => {
+        document.getElementById('status').textContent = 'Disconnected';
+        document.getElementById('status').className = 'status disconnected';
+        addLog('Disconnected from server. Reconnecting...', 'warning');
+        setTimeout(connectWebSocket, 3000);
+      };
+
+      ws.onerror = (error) => {
+        addLog('WebSocket error: ' + error, 'error');
+      };
+    }
+
+    // Add log entry
+    function addLog(message, type = 'info', timestamp = null) {
+      const logsContainer = document.getElementById('logsContainer');
+      
+      // Remove empty state
+      const emptyState = logsContainer.querySelector('.empty-state');
+      if (emptyState) {
+        emptyState.remove();
+      }
+
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${type}`;
+      
+      const ts = timestamp ? new Date(timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
+      entry.innerHTML = `<span class="log-timestamp">[${ts}]</span>${escapeHtml(message)}`;
+      
+      logsContainer.appendChild(entry);
+      logsContainer.scrollTop = logsContainer.scrollHeight;
+    }
+
+    function clearLogs() {
+      const logsContainer = document.getElementById('logsContainer');
+      logsContainer.innerHTML = '<div class="empty-state">Logs cleared</div>';
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Initialize on load
+    init();
+  </script>
+</body>
+</html>
+
