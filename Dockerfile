@@ -12,14 +12,14 @@ FROM base AS runner
 ENV NODE_ENV=production
 ENV WEBHOOK_URL=""
 
+RUN mkdir -p data && chown -R bun:bun /app
+
 USER bun
 
 COPY --from=deps --chown=bun:bun /app/node_modules ./node_modules
 COPY --from=deps --chown=bun:bun /app/package.json ./package.json
 COPY --chown=bun:bun *.ts ./
 COPY --chown=bun:bun dashboard.html ./
-
-RUN mkdir -p data
 
 EXPOSE 3000
 
