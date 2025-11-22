@@ -1,6 +1,7 @@
 import { write } from "bun";
 import { loadConfig } from "./config";
 import { broadcastLog } from "./logger";
+import { htmlToText } from "html-to-text";
 
 const DB_PATH = "./data/products_db.json";
 interface Variant {
@@ -19,6 +20,7 @@ interface Product {
   title: string;
   handle: string;
   updated_at: string;
+  body_html?: string;
   images: ProductImage[];
   variants: Variant[];
 }
@@ -26,11 +28,42 @@ interface Product {
 interface StoredProductData {
   title: string;
   updated_at: string;
+  description?: string;
   variants: Record<string, { price: string; available: boolean }>;
 }
 
 interface Database {
   [site: string]: Record<string, StoredProductData>;
+}
+
+function parseHtmlToText(html: string | undefined): string {
+  if (!html) return "";
+  
+  try {
+    return htmlToText(html, {
+      wordwrap: false,
+      preserveNewlines: false,
+      longWordSplit: { wrapCharacters: [], forceWrapOnLimit: false },
+      selectors: [
+        { selector: 'a', options: { ignoreHref: true } },
+        { selector: 'img', format: 'skip' }
+      ]
+    })
+      .replace(/\s+/g, ' ')
+      .trim();
+  } catch (e) {
+    return html
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&apos;/g, "'")
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
 }
 
 async function loadDb(): Promise<Database> {
@@ -66,7 +99,7 @@ async function getProducts(baseUrl: string, userAgent: string): Promise<Product[
   }
 }
 
-async function sendWebhook(product: Product, site: string, webhookUrl: string, type: "NEW" | "UPDATE", changes?: string) {
+async function sendWebhook(product: Product, description: string, site: string, webhookUrl: string, type: "NEW" | "UPDATE", changes?: string) {
   const color = type === "NEW" ? 3066993 : 16776960;
   const productUrl = `${site}/products/${product.handle}`;
   const imageUrl = product.images.length > 0 ? product.images[0].src : "";
@@ -81,6 +114,19 @@ async function sendWebhook(product: Product, site: string, webhookUrl: string, t
 
   if (variantText.length > 1024) variantText = variantText.substring(0, 1020) + "...";
 
+  let embedDescription = "";
+  if (description) {
+    const maxDescLength = 4096 - (changes ? 100 : 0);
+    const truncatedDesc = description.length > maxDescLength 
+      ? description.substring(0, maxDescLength - 3) + "..."
+      : description;
+    embedDescription = truncatedDesc;
+  }
+  
+  if (changes) {
+    embedDescription += embedDescription ? `\n\n**Changes Detected:**\n${changes}` : `**Changes Detected:**\n${changes}`;
+  }
+
   const payload = {
     username: "Shopify Monitor",
     avatar_url: "https://cdn.shopify.com/s/files/1/0533/2089/files/shopify-icon.png",
@@ -88,7 +134,7 @@ async function sendWebhook(product: Product, site: string, webhookUrl: string, t
       title: `[${type}] ${product.title}`,
       url: productUrl,
       color: color,
-      description: changes ? `**Changes Detected:**\n${changes}` : undefined,
+      description: embedDescription || undefined,
       thumbnail: { url: imageUrl },
       fields: [{ name: "Variants", value: variantText || "No variants", inline: false }],
       footer: { text: `Monitor • ${domain}`, icon_url: "https://cdn.shopify.com/s/files/1/0533/2089/files/shopify-icon.png" },
@@ -158,13 +204,16 @@ export async function startMonitor() {
 
           if (!db[site][pid]) {
             broadcastLog(`New Product: ${p.title}`, "success");
+            const productDescription = parseHtmlToText(p.body_html);
+            
             if (Object.keys(db[site]).length > 0) {
-              await sendWebhook(p, site, config.webhookUrl, "NEW");
+              await sendWebhook(p, productDescription, site, config.webhookUrl, "NEW");
             }
             
             db[site][pid] = {
               title: p.title,
               updated_at: p.updated_at,
+              description: productDescription,
               variants: currentVariants
             };
             continue;
@@ -172,6 +221,7 @@ export async function startMonitor() {
 
           const savedData = db[site][pid];
           const changes: string[] = [];
+          const productDescription = parseHtmlToText(p.body_html);
 
           for (const [vid, vData] of Object.entries(currentVariants)) {
             const oldV = savedData.variants[vid];
@@ -188,12 +238,20 @@ export async function startMonitor() {
             }
           }
 
+          if (productDescription !== (savedData.description || "")) {
+            changes.push("Description updated");
+          }
+
           if (changes.length > 0) {
             broadcastLog(`Update: ${p.title} - ${changes.join(", ")}`, "success");
-            await sendWebhook(p, site, config.webhookUrl, "UPDATE", changes.join("\n"));
+            const finalDescription = productDescription || savedData.description || "";
+            await sendWebhook(p, finalDescription, site, config.webhookUrl, "UPDATE", changes.join("\n"));
             
             db[site][pid].updated_at = p.updated_at;
+            db[site][pid].description = finalDescription;
             db[site][pid].variants = currentVariants;
+          } else {
+            db[site][pid].description = productDescription || savedData.description || "";
           }
         }
       }

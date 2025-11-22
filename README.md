@@ -133,10 +133,10 @@ Pre-built Docker images are automatically built and pushed to [GitHub Container 
 docker pull ghcr.io/theandersmadsen/shopify-monitor:latest
 ```
 
-Or use the provided `docker-compose.ghcr.yml`:
+Or use docker-compose:
 
 ```bash
-docker-compose -f docker-compose.ghcr.yml up -d
+docker-compose up -d
 ```
 
 ## License
