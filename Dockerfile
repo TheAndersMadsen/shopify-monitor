@@ -11,7 +11,7 @@ FROM base AS runner
 
 ENV NODE_ENV=production
 
-RUN mkdir -p data && chown -R bun:bun /app
+RUN mkdir -p /app/data && chown -R bun:bun /app
 
 USER bun
 
