@@ -35,6 +35,8 @@ The dashboard will be available at `http://localhost:3000`
 
 ### Using Docker
 
+#### Option 1: Using Docker Compose (Build Locally)
+
 ```bash
 # Clone the repository
 git clone https://github.com/TheAndersMadsen/shopify-monitor.git
@@ -45,6 +47,22 @@ docker-compose up -d
 
 # View logs
 docker-compose logs -f
+```
+
+#### Option 2: Using Pre-built Image from GitHub Container Registry
+
+```bash
+# Pull the latest image
+docker pull ghcr.io/theandersmadsen/shopify-monitor:latest
+
+# Run the container
+docker run -d \
+  --name shopify-monitor \
+  -p 3000:3000 \
+  -v $(pwd)/data:/app/data \
+  -e WEBHOOK_URL=${WEBHOOK_URL:-} \
+  --restart unless-stopped \
+  ghcr.io/theandersmadsen/shopify-monitor:latest
 ```
 
 The dashboard will be available at `http://localhost:3000`
@@ -96,6 +114,29 @@ shopify-monitor/
 bun run dev
 
 # The server will automatically reload on file changes
+```
+
+## Docker Image
+
+Pre-built Docker images are automatically built and pushed to [GitHub Container Registry](https://github.com/TheAndersMadsen/shopify-monitor/pkgs/container/shopify-monitor) on every push to the main branch and when tags are created.
+
+### Available Tags
+
+- `latest` - Latest build from main branch
+- `main` - Build from main branch
+- `v*` - Semantic version tags (e.g., `v2.0.0`)
+- `main-<sha>` - Builds tagged with commit SHA
+
+### Pull and Run
+
+```bash
+docker pull ghcr.io/theandersmadsen/shopify-monitor:latest
+```
+
+Or use the provided `docker-compose.ghcr.yml`:
+
+```bash
+docker-compose -f docker-compose.ghcr.yml up -d
 ```
 
 ## License
