@@ -1,4 +1,5 @@
-import { loadConfig, saveConfig, type MonitorConfig } from "./config";
+import { z } from "zod";
+import { loadConfig, saveConfig, type MonitorConfig, ConfigSchema } from "./config";
 import { startMonitor, restartMonitor } from "./monitor";
 import { addWebSocketClient, removeWebSocketClient, broadcastLog } from "./logger";
 
@@ -21,8 +22,9 @@ async function startServer() {
     async fetch(req) {
       const url = new URL(req.url);
       
+      const origin = req.headers.get("origin") ?? "*";
       const corsHeaders = {
-        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Origin": origin,
         "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type"
       };
@@ -39,15 +41,27 @@ async function startServer() {
         return undefined;
       }
       
+      if (url.pathname === "/health") {
+        return Response.json({ status: "ok" }, { headers: corsHeaders });
+      }
+
       if (url.pathname === "/api/config") {
         if (req.method === "GET") {
           const config = await loadConfig();
           return Response.json(config, { headers: corsHeaders });
         }
-        
+
         if (req.method === "POST" || req.method === "PUT") {
           try {
-            const newConfig = await req.json() as Partial<MonitorConfig>;
+            const payload = await req.json();
+            const parsed = ConfigSchema.partial().safeParse(payload);
+            if (!parsed.success) {
+              return Response.json({ success: false, error: parsed.error.flatten() }, {
+                status: 400,
+                headers: corsHeaders
+              });
+            }
+            const newConfig = parsed.data as Partial<MonitorConfig>;
             const currentConfig = await loadConfig();
             const updatedConfig: MonitorConfig = {
               ...currentConfig,
@@ -83,10 +97,11 @@ async function startServer() {
       return new Response("Not Found", { status: 404, headers: corsHeaders });
     },
     websocket: {
-      message(ws, message) {
+      message(_ws, message) {
         try {
-          const data = JSON.parse(message.toString());
-          if (data.type === "restart_monitor") {
+          const CommandSchema = z.object({ type: z.literal("restart_monitor") });
+          const maybe = CommandSchema.safeParse(JSON.parse(message.toString()));
+          if (maybe.success) {
             restartMonitor();
           }
         } catch (e) {

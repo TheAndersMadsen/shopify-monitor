@@ -1,22 +1,30 @@
-const wsClients = new Set<any>();
+import type { ServerWebSocket } from "bun";
 
-export function addWebSocketClient(ws: any) {
+interface LogEntry {
+  timestamp: string;
+  message: string;
+  type: "info" | "success" | "error" | "warning";
+}
+
+const wsClients = new Set<ServerWebSocket>();
+
+export function addWebSocketClient(ws: ServerWebSocket) {
   wsClients.add(ws);
 }
 
-export function removeWebSocketClient(ws: any) {
+export function removeWebSocketClient(ws: ServerWebSocket) {
   wsClients.delete(ws);
 }
 
 export function broadcastLog(message: string, type: "info" | "success" | "error" | "warning" = "info") {
-  const logEntry = {
+  const logEntry: LogEntry = {
     timestamp: new Date().toISOString(),
     message,
     type
   };
   
   const data = JSON.stringify(logEntry);
-  wsClients.forEach((ws: any) => {
+  wsClients.forEach((ws) => {
     if (ws.readyState === 1) {
       try {
         ws.send(data);
