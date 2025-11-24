@@ -1,7 +1,7 @@
 import { write } from "bun";
+import { htmlToText } from "html-to-text";
 import { loadConfig } from "./config";
 import { broadcastLog } from "./logger";
-import { htmlToText } from "html-to-text";
 
 const DB_PATH = "./data/products_db.json";
 interface Variant {
@@ -25,6 +25,10 @@ interface Product {
   variants: Variant[];
 }
 
+interface ShopifyProductsResponse {
+  products?: Product[];
+}
+
 interface StoredProductData {
   title: string;
   updated_at: string;
@@ -36,7 +40,7 @@ interface Database {
   [site: string]: Record<string, StoredProductData>;
 }
 
-function parseHtmlToText(html: string | undefined): string {
+export function parseHtmlToText(html: string | undefined): string {
   if (!html) return "";
   
   try {
@@ -82,16 +86,17 @@ async function saveDb(db: Database) {
   await write(DB_PATH, JSON.stringify(db, null, 2));
 }
 
-async function getProducts(baseUrl: string, userAgent: string): Promise<Product[]> {
+async function getProducts(baseUrl: string, userAgent: string, signal?: AbortSignal): Promise<Product[]> {
   const url = `${baseUrl}/products.json?limit=250`;
   try {
     const response = await fetch(url, {
-      headers: { "User-Agent": userAgent }
+      headers: { "User-Agent": userAgent },
+      signal: signal ?? AbortSignal.timeout(15000)
     });
-    
+
     if (!response.ok) throw new Error(`Status ${response.status}`);
-    
-    const data = await response.json() as any;
+
+    const data = await response.json() as ShopifyProductsResponse;
     return data.products || [];
   } catch (error) {
     broadcastLog(`Error fetching ${baseUrl}: ${error}`, "error");
@@ -162,6 +167,12 @@ async function sendWebhook(product: Product, description: string, site: string, 
 let monitorRunning = false;
 let monitorAbortController: AbortController | null = null;
 
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
 export async function startMonitor() {
   if (monitorRunning) {
     broadcastLog("Monitor is already running", "warning");
@@ -185,78 +196,89 @@ export async function startMonitor() {
         isFirstRun = false;
       }
 
-      for (const site of config.sites) {
+      let dbChanged = false;
+      const concurrency = Math.min(5, Math.max(1, config.sites.length));
+      for (const batch of chunk(config.sites, concurrency)) {
         if (monitorAbortController.signal.aborted) break;
-        
-        if (!db[site]) db[site] = {};
-        
-        broadcastLog(`Checking ${site}...`, "info");
-        const products = await getProducts(site, config.userAgent);
+        const results = await Promise.allSettled(batch.map(async (site) => {
+          if (!db[site]) db[site] = {};
+          broadcastLog(`Checking ${site}...`, "info");
+          const products = await getProducts(site, config.userAgent, monitorAbortController?.signal);
 
-        for (const p of products) {
-          if (monitorAbortController.signal.aborted) break;
-          
-          const pid = String(p.id);
-          const currentVariants = p.variants.reduce((acc, v) => {
-            acc[String(v.id)] = { price: v.price, available: v.available };
-            return acc;
-          }, {} as Record<string, { price: string; available: boolean }>);
-
-          if (!db[site][pid]) {
-            broadcastLog(`New Product: ${p.title}`, "success");
-            const productDescription = parseHtmlToText(p.body_html);
+          for (const p of products) {
+            if (monitorAbortController?.signal.aborted) break;
             
-            if (Object.keys(db[site]).length > 0) {
-              await sendWebhook(p, productDescription, site, config.webhookUrl, "NEW");
-            }
-            
-            db[site][pid] = {
-              title: p.title,
-              updated_at: p.updated_at,
-              description: productDescription,
-              variants: currentVariants
-            };
-            continue;
-          }
+            const pid = String(p.id);
+            const currentVariants = p.variants.reduce((acc, v) => {
+              acc[String(v.id)] = { price: v.price, available: v.available };
+              return acc;
+            }, {} as Record<string, { price: string; available: boolean }>);
 
-          const savedData = db[site][pid];
-          const changes: string[] = [];
-          const productDescription = parseHtmlToText(p.body_html);
-
-          for (const [vid, vData] of Object.entries(currentVariants)) {
-            const oldV = savedData.variants[vid];
-            if (!oldV) {
-              changes.push(`New Variant: ID ${vid}`);
+            if (!db[site][pid]) {
+              broadcastLog(`New Product: ${p.title}`, "success");
+              const productDescription = parseHtmlToText(p.body_html);
+              
+              if (Object.keys(db[site]).length > 0) {
+                await sendWebhook(p, productDescription, site, config.webhookUrl, "NEW");
+              }
+              
+              db[site][pid] = {
+                title: p.title,
+                updated_at: p.updated_at,
+                description: productDescription,
+                variants: currentVariants
+              };
+              dbChanged = true;
               continue;
             }
-            if (vData.price !== oldV.price) {
-              changes.push(`Price: $${oldV.price} -> $${vData.price}`);
+
+            const savedData = db[site][pid];
+            const changes: string[] = [];
+            const productDescription = parseHtmlToText(p.body_html);
+
+            for (const [vid, vData] of Object.entries(currentVariants)) {
+              const oldV = savedData.variants[vid];
+              if (!oldV) {
+                changes.push(`New Variant: ID ${vid}`);
+                continue;
+              }
+              if (vData.price !== oldV.price) {
+                changes.push(`Price: $${oldV.price} -> $${vData.price}`);
+              }
+              if (vData.available !== oldV.available) {
+                const status = vData.available ? "In Stock" : "Out of Stock";
+                changes.push(`Stock: ${status} (Variant ${vid})`);
+              }
             }
-            if (vData.available !== oldV.available) {
-              const status = vData.available ? "In Stock" : "Out of Stock";
-              changes.push(`Stock: ${status} (Variant ${vid})`);
+
+            if (productDescription !== (savedData.description || "")) {
+              changes.push("Description updated");
+            }
+
+            if (changes.length > 0) {
+              broadcastLog(`Update: ${p.title} - ${changes.join(", ")}`, "success");
+              const finalDescription = productDescription || savedData.description || "";
+              await sendWebhook(p, finalDescription, site, config.webhookUrl, "UPDATE", changes.join("\n"));
+              
+              db[site][pid].updated_at = p.updated_at;
+              db[site][pid].description = finalDescription;
+              db[site][pid].variants = currentVariants;
+              dbChanged = true;
+            } else {
+              db[site][pid].description = productDescription || savedData.description || "";
             }
           }
-
-          if (productDescription !== (savedData.description || "")) {
-            changes.push("Description updated");
-          }
-
-          if (changes.length > 0) {
-            broadcastLog(`Update: ${p.title} - ${changes.join(", ")}`, "success");
-            const finalDescription = productDescription || savedData.description || "";
-            await sendWebhook(p, finalDescription, site, config.webhookUrl, "UPDATE", changes.join("\n"));
-            
-            db[site][pid].updated_at = p.updated_at;
-            db[site][pid].description = finalDescription;
-            db[site][pid].variants = currentVariants;
-          } else {
-            db[site][pid].description = productDescription || savedData.description || "";
+        }));
+        for (const r of results) {
+          if (r.status === "rejected") {
+            broadcastLog(`Batch error: ${r.reason}`, "error");
           }
         }
       }
 
-      await saveDb(db);
+      if (dbChanged) {
+        await saveDb(db);
+      }
       
       const currentConfig = await loadConfig();
       await Bun.sleep(currentConfig.delayMs);
